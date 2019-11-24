@@ -1,5 +1,6 @@
 #include "led-matrix.h"
 
+// Sleeping thread
 #include <thread>
 #include <chrono>
 
@@ -7,19 +8,19 @@
 
 #include <unistd.h>
 #include <stdio.h>
-#include <signal.h>
-#include <pthread.h>
-#include <sys/shm.h>
 
-#include <stdlib.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <linux/input.h>
 #include <string.h>
 
 #include <getopt.h>
 
+using rgb_matrix::GPIO;
+using rgb_matrix::RGBMatrix;
+using rgb_matrix::Canvas;
+using std::vector;
+
 #define PPM_SIZE 70
+
+int MATRIX[64][64][3]={0};
 
 
 void usage(char *name){
@@ -85,11 +86,6 @@ parser_arguments get_arguments(int argc, char ** argv){
 	return retour;
 }
 
-
-
-
-int MATRIX[64][64][3]={0};
-
 void show_matrix(){
 	for (int line =0; line < 64; line++){
 		for (int column=0; column < 64 ; column++){
@@ -110,13 +106,7 @@ void showArg(parser_arguments * arg){
 void parse_file(FILE * filename, enum format_e format ){
 	char buff[PPM_SIZE];
 	char * ptr;	
-	int width, height;
-
-	int position_x = 0;
-	int position_y = 0;
-	int rgb_pos = 0;
-
-
+	int width, height, max_pixel;
 	if (filename != NULL){
 		if ( format == PPM ){
 			ptr = fgets(buff, PPM_SIZE, filename);
@@ -129,72 +119,91 @@ void parse_file(FILE * filename, enum format_e format ){
 						exit(4);
 					}
 				}while ((strncmp(buff, "#", 1)) == 0);		
-				if ( sscanf(buff, "%d %d", &width, &height) < 2){
-						fprintf(stderr, "An error occurs during parsing\n");
-						exit(4);
+				if ( sscanf(buff, "%d %d", &width, &height) != 2){
+					fprintf(stderr, "An error occurs during parsing\n");
+					exit(4);
 				}
 				if ((width != 64 )||(height != 64)){
-						fprintf(stderr, "An error occurs during parsing. Bad matrix size\n");
-						exit(4);
+					fprintf(stderr, "An error occurs during parsing. Bad matrix size (%d,%d)\n",width, height);
+					exit(4);
+				}
+				if ((fscanf(filename, "%d", &max_pixel)) != 1){
+					fprintf(stderr, "An error occurs during parsing. Max pixel size\n");
+					exit(4);
+				}else{
+					printf("Max pixel width : %d\n", max_pixel);
 				}
 				int pixel=0;
-				do {
-					pixel = 0;
-					if (fscanf(filename, "%d", &pixel) == 1){
-						if (pixel <= 255){
-							MATRIX[position_y][position_x][rgb_pos] = pixel;
-							rgb_pos +=1;
-							if (rgb_pos == 3){
-								rgb_pos = 0;
-								position_x +=1;
-								if (position_x == 64){
-									position_x = 0;
-									position_y += 1;
-								}
+				for (int line=0; line<64; line++){
+					for (int column=0; column<64; column++){
+						for (int rgb = 0; rgb<3; rgb++){
+							pixel = 0;
+							if (fscanf(filename, "%d", &pixel) == 1){
+								MATRIX[line][column][rgb] = pixel;
 							}
 						}
 					}
-				}while((position_x < 64) && (position_y < 64 ));
+				}
 			}
 		}else{
 			unsigned int r = 0;
 			unsigned int g = 0;
 			unsigned int b = 0;
-			do {
-				if (fscanf(filename, "(%d,%d,%d)", &r,&g,&b) == 3){
-					fseek(filename, 1, SEEK_CUR);
-					if ((r <= 255) && (g <= 255) && (b <= 255)){
-						MATRIX[position_y][position_x][0] = r;
-						MATRIX[position_y][position_x][1] = g;
-						MATRIX[position_y][position_x][2] = b;
-						position_x +=1;
-						if (position_x == 64){
-							position_x = 0;
-							position_y += 1;
+			for (int line=0; line<64; line++){
+				for (int column=0; column<64; column++){
+					if (fscanf(filename, "(%u,%u,%u)", &r,&g,&b) == 3){
+						fseek(filename, 1, SEEK_CUR);
+						if ((r <= 255) && (g <= 255) && (b <= 255)){
+							MATRIX[line][column][0] = r;
+							MATRIX[line][column][1] = g;
+							MATRIX[line][column][2] = b;
 						}
 					}
 				}
-			}while((position_x < 64) && (position_y < 64 ));
+			}
 		}
 	}
 }
 
 
+void draw_matrix(RGBMatrix * canvas){
+	for (int line =0; line < 64; line++){
+		for (int column=0; column < 64 ; column++){
+			canvas->SetPixel(column, line, MATRIX[line][column][0], MATRIX[line][column][1], MATRIX[line][column][2]);
+		}
+	}
+}
+
 int main(int argc, char ** argv){
 	parser_arguments arg = get_arguments(argc, argv);
+	RGBMatrix::Options defaults;
+	defaults.hardware_mapping = "regular";
+	defaults.rows = 64;
+	defaults.chain_length = 2;
+	defaults.parallel = 2;
+	defaults.show_refresh_rate = true;
+
+	rgb_matrix::RuntimeOptions run_opt;
+	run_opt.drop_privileges = 0;
+	run_opt.daemon = 0;
+	run_opt.do_gpio_init = 1;
+	RGBMatrix * canvas = rgb_matrix::CreateMatrixFromOptions(defaults,run_opt);
+	if (canvas  == NULL){
+		fprintf(stderr, "An error occurs when initializing Led Matrix\n");
+		exit(3);
+	}
 	FILE * fp;
-	if ((fp = fopen(arg.filename, "r")) != NULL){
-		while(true){
+	while(true){
+		if ((fp = fopen(arg.filename, "r")) != NULL){
 			parse_file(fp, arg.format);
 			fseek(fp, 0, SEEK_SET);
 			std::this_thread::sleep_for(std::chrono::milliseconds(1000/arg.fps));
-//			sleep(0.5);
-			printf("In\n");
+			draw_matrix(canvas);
+			fclose(fp);
+//			show_matrix();
+		}else{
+			fprintf(stderr, "Buffer file '%s' is not created\n", arg.filename);
 		}
-		fclose(fp);
-		show_matrix();
-	}else{
-		fprintf(stderr, "Buffer file '%s' is not created\n", arg.filename);
 	}
 	return 0;
 }

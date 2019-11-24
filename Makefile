@@ -15,6 +15,8 @@ LDFLAGS+=-L$(RGB_LIBDIR) -l$(RGB_LIBRARY_NAME) -lrt -lm -lpthread -pthread
 
 all : $(BINARIES)
 
+.DEFAULT_GOAL := clean all
+
 $(RGB_LIBRARY): FORCE
 	$(MAKE) -C $(RGB_LIBDIR)
 
@@ -32,6 +34,7 @@ parser : parser.o
 
 clean:
 	rm -f $(OBJECTS) $(BINARIES)
+	$(MAKE) -C $(RGB_LIB_DISTRIBUTION) clean
 
 FORCE:
 .PHONY: FORCE
