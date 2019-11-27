@@ -174,6 +174,11 @@ void draw_matrix(RGBMatrix * canvas){
 	}
 }
 
+bool interrupt_received;
+static void InterruptHandler(int signo) {
+  interrupt_received = true;
+}
+
 int main(int argc, char ** argv){
 	parser_arguments arg = get_arguments(argc, argv);
 	RGBMatrix::Options defaults;
@@ -193,7 +198,7 @@ int main(int argc, char ** argv){
 		exit(3);
 	}
 	FILE * fp;
-	while(true){
+	while(!interrupt_received){
 		if ((fp = fopen(arg.filename, "r")) != NULL){
 			parse_file(fp, arg.format);
 			fseek(fp, 0, SEEK_SET);
@@ -205,5 +210,7 @@ int main(int argc, char ** argv){
 			fprintf(stderr, "Buffer file '%s' is not created\n", arg.filename);
 		}
 	}
+	canvas->Clear();
+  	delete canvas;
 	return 0;
 }
