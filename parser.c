@@ -24,7 +24,7 @@ int MATRIX[64][64][3]={0};
 
 
 void usage(char *name){
-	printf("Usage: %s --filebuffer FILENAME --fps FPS --format [txt|ppm]\n", name);
+	printf("Usage: %s --filebuffer FILENAME --fps FPS --format [txt|ppm] --intensity INT\n\nDefault values :\n\tFPS 60\nINT 50 (MAX 100)\nformat txt", name);
 	exit(1);
 }
 
@@ -37,22 +37,24 @@ typedef struct parser_arguments{
 	char filename[2048];
 	unsigned short fps;
 	enum format_e format;
+	unsigned short intensity;
 } parser_arguments;
 
 
 parser_arguments get_arguments(int argc, char ** argv){
 	int opt;
 	int option_index = 0;
-	parser_arguments retour = {"buffer", 60, TXT};
+	parser_arguments retour = {"buffer", 60, TXT, 50};
 
 	static struct option long_options[] = {
 		{"filebuffer", required_argument, 0,  'b' },
 		{"fps",  			 required_argument, 0,  'f' },
 		{"format",  	 required_argument, 0,  't' },
+		{"intensity",  required_argument, 0,  'i' },
 		{0,            0,                 0,   0 }
 	};
 
-	while ((opt = getopt_long(argc, argv, "b:f:t:",long_options, &option_index)) != -1 ){
+	while ((opt = getopt_long(argc, argv, "b:f:t:i:",long_options, &option_index)) != -1 ){
 		switch(opt){
 			case 'b':
 				strncpy(retour.filename, optarg, sizeof(retour.filename));
@@ -66,6 +68,9 @@ parser_arguments get_arguments(int argc, char ** argv){
 				}else{
 					retour.format = TXT;	
 				}
+				break;
+			case 'i':
+				retour.intensity = atoi(optarg);
 				break;
 			default:
 				usage(argv[0]);
@@ -103,7 +108,7 @@ void showArg(parser_arguments * arg){
 	printf("Format :%d\n", arg->format);
 }
 
-void parse_file(FILE * filename, enum format_e format ){
+void parse_file(FILE * filename, enum format_e format){
 	char buff[PPM_SIZE];
 	char * ptr;	
 	int width, height, max_pixel;
@@ -130,8 +135,6 @@ void parse_file(FILE * filename, enum format_e format ){
 				if ((fscanf(filename, "%d", &max_pixel)) != 1){
 					fprintf(stderr, "An error occurs during parsing. Max pixel size\n");
 					exit(4);
-				}else{
-					printf("Max pixel width : %d\n", max_pixel);
 				}
 				int pixel=0;
 				for (int line=0; line<64; line++){
@@ -151,7 +154,7 @@ void parse_file(FILE * filename, enum format_e format ){
 			unsigned int b = 0;
 			for (int line=0; line<64; line++){
 				for (int column=0; column<64; column++){
-					if (fscanf(filename, "(%u,%u,%u)", &r,&g,&b) == 3){
+					if (fscanf(filename, "(%u,%u,%u)", &r,&g,&b) != EOF){
 						fseek(filename, 1, SEEK_CUR);
 						if ((r <= 255) && (g <= 255) && (b <= 255)){
 							MATRIX[line][column][0] = r;
@@ -187,6 +190,7 @@ int main(int argc, char ** argv){
 	defaults.chain_length = 2;
 	defaults.parallel = 2;
 	defaults.show_refresh_rate = true;
+	defaults.brightness = arg.intensity;
 
 	rgb_matrix::RuntimeOptions run_opt;
 	run_opt.drop_privileges = 0;
@@ -205,7 +209,6 @@ int main(int argc, char ** argv){
 			std::this_thread::sleep_for(std::chrono::milliseconds(1000/arg.fps));
 			draw_matrix(canvas);
 			fclose(fp);
-//			show_matrix();
 		}else{
 			fprintf(stderr, "Buffer file '%s' is not created\n", arg.filename);
 		}
